@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Private Knowledge Q&A</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📚 Private Knowledge Q&A</h1>
+            <p class="subtitle">Upload documents and ask questions about them</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Left Panel: Documents -->
+            <div class="panel documents-panel">
+                <h2>📄 Documents</h2>
+                
+                <div class="upload-section">
+                    <input type="file" id="fileInput" accept=".txt" style="display: none;">
+                    <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+                        ➕ Upload Document
+                    </button>
+                    <p class="help-text">Only .txt files</p>
+                </div>
+
+                <div id="documentsList" class="documents-list">
+                    <p class="empty-state">No documents uploaded yet</p>
+                </div>
+            </div>
+
+            <!-- Right Panel: Q&A -->
+            <div class="panel qa-panel">
+                <h2>💬 Ask a Question</h2>
+                
+                <div class="question-section">
+                    <textarea 
+                        id="questionInput" 
+                        placeholder="Type your question here..."
+                        rows="3"
+                    ></textarea>
+                    <button class="btn btn-primary" onclick="askQuestion()">
+                        🔍 Ask Question
+                    </button>
+                </div>
+
+                <div id="answerSection" class="answer-section" style="display: none;">
+                    <h3>Answer</h3>
+                    <div id="answerText" class="answer-text"></div>
+                    
+                    <div id="sourcesSection" style="display: none;">
+                        <h4>📍 Sources</h4>
+                        <div id="sourcesList" class="sources-list"></div>
+                    </div>
+                </div>
+
+                <!-- History Section -->
+                <div class="history-section">
+                    <div class="history-header">
+                        <h3>🕐 Recent History (Last 5)</h3>
+                        <button class="btn btn-small" onclick="clearHistory()">Clear</button>
+                    </div>
+                    <div id="historyList" class="history-list">
+                        <p class="empty-state">No queries yet</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="notification" class="notification"></div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
