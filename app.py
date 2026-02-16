@@ -261,67 +261,119 @@ def serve_static(path):
 @app.route('/api/upload', methods=['POST'])
 def upload_document():
     """Upload a document and add to vector database"""
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'}), 400
-    
-    if not file.filename.endswith('.txt'):
-        return jsonify({'error': 'Only .txt files are allowed'}), 400
-    
-    # Save file
-    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-    file.save(filepath)
-    
-    # Read content and add to vector database
-    with open(filepath, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
-    # Add to vector database
     try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not file.filename.endswith('.txt'):
+            return jsonify({'error': 'Only .txt files are allowed'}), 400
+        
+        # Read content directly from uploaded file
+        content = file.read().decode('utf-8')
+        
+        if not content.strip():
+            return jsonify({'error': 'File is empty'}), 400
+        
+        # Try to save file (optional - may fail on ephemeral filesystems)
+        try:
+            filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+        except Exception as e:
+            print(f"⚠️ Could not save file to disk: {e}")
+        
+        # Add to vector database (this is what matters)
         add_document_to_vectordb(file.filename, content)
         print(f"✅ Indexed: {file.filename}")
-    except Exception as e:
-        print(f"❌ Error indexing {file.filename}: {e}")
+        
+        return jsonify({
+            'message': 'File uploaded and indexed successfully',
+            'filename': file.filename
+        })
     
-    return jsonify({
-        'message': 'File uploaded and indexed successfully',
-        'filename': file.filename
-    })
+    except Exception as e:
+        print(f"❌ Upload error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
 
 @app.route('/api/documents', methods=['GET'])
 def list_documents():
     """Get list of all documents"""
-    documents = []
-    for filename in os.listdir(UPLOAD_FOLDER):
-        if filename.endswith('.txt'):
-            filepath = os.path.join(UPLOAD_FOLDER, filename)
-            stat = os.stat(filepath)
-            documents.append({
-                'name': filename,
-                'size': stat.st_size,
-                'uploaded': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
-            })
+    try:
+        load_vector_store()
+        
+        # Get unique filenames from vector store
+        seen_files = {}
+        for meta in vector_store['metadata']:
+            filename = meta['filename']
+            if filename not in seen_files:
+                seen_files[filename] = {
+                    'name': filename,
+                    'chunks': 1,
+                    'uploaded': 'Recently'
+                }
+            else:
+                seen_files[filename]['chunks'] += 1
+        
+        # Try to get file stats from filesystem if available
+        documents = []
+        for filename, info in seen_files.items():
+            try:
+                filepath = os.path.join(UPLOAD_FOLDER, filename)
+                if os.path.exists(filepath):
+                    stat = os.stat(filepath)
+                    documents.append({
+                        'name': filename,
+                        'size': stat.st_size,
+                        'uploaded': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                    })
+                else:
+                    # File not on disk, use vector store info
+                    documents.append({
+                        'name': filename,
+                        'size': info['chunks'] * 500,  # Estimate based on chunks
+                        'uploaded': info['uploaded']
+                    })
+            except:
+                # Fallback to vector store info
+                documents.append({
+                    'name': filename,
+                    'size': info['chunks'] * 500,
+                    'uploaded': info['uploaded']
+                })
+        
+        return jsonify({'documents': documents})
     
-    return jsonify({'documents': documents})
+    except Exception as e:
+        print(f"❌ Error listing documents: {e}")
+        return jsonify({'documents': []})
 
 
 @app.route('/api/documents/<filename>', methods=['DELETE'])
 def delete_document(filename):
     """Delete a document from filesystem and vector store"""
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    if os.path.exists(filepath):
-        os.remove(filepath)
+    try:
+        # Remove from filesystem if it exists
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            print(f"✅ Deleted file: {filename}")
         
-        # Remove from vector store
+        # Remove from vector store (this is what matters)
         load_vector_store()
         indices_to_remove = []
         for i, meta in enumerate(vector_store['metadata']):
             if meta['filename'] == filename:
                 indices_to_remove.append(i)
+        
+        if not indices_to_remove:
+            return jsonify({'error': 'Document not found'}), 404
         
         for i in sorted(indices_to_remove, reverse=True):
             del vector_store['chunks'][i]
@@ -329,9 +381,13 @@ def delete_document(filename):
             del vector_store['metadata'][i]
         
         save_vector_store()
+        print(f"✅ Removed {filename} from vector store")
         
         return jsonify({'message': 'Document deleted'})
-    return jsonify({'error': 'Document not found'}), 404
+    
+    except Exception as e:
+        print(f"❌ Error deleting document: {e}")
+        return jsonify({'error': f'Delete failed: {str(e)}'}), 500
 
 
 @app.route('/api/ask', methods=['POST'])
