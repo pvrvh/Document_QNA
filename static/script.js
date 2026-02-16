@@ -1,4 +1,7 @@
-const API_BASE = 'http://localhost:5000/api';
+// Use relative path for API - works both locally and on deployed server
+const API_BASE = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5000/api' 
+    : '/api';
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -34,26 +37,46 @@ async function uploadFile() {
     
     if (!file) return;
     
+    if (!file.name.endsWith('.txt')) {
+        showNotification('Only .txt files are allowed', 'error');
+        fileInput.value = '';
+        return;
+    }
+    
     const formData = new FormData();
     formData.append('file', file);
     
     try {
+        console.log('Uploading to:', `${API_BASE}/upload`);
         const response = await fetch(`${API_BASE}/upload`, {
             method: 'POST',
             body: formData
         });
         
-        const data = await response.json();
+        console.log('Response status:', response.status);
         
-        if (response.ok) {
-            showNotification(`✓ ${file.name} uploaded successfully`);
-            loadDocuments();
-            fileInput.value = ''; // Reset input
-        } else {
-            showNotification(data.error || 'Upload failed', 'error');
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Upload error response:', errorText);
+            try {
+                const errorData = JSON.parse(errorText);
+                showNotification(errorData.error || 'Upload failed', 'error');
+            } catch {
+                showNotification(`Upload failed: ${response.status} ${response.statusText}`, 'error');
+            }
+            return;
         }
+        
+        const data = await response.json();
+        console.log('Upload success:', data);
+        
+        showNotification(`✓ ${file.name} uploaded successfully`);
+        loadDocuments();
+        fileInput.value = ''; // Reset input
+        
     } catch (error) {
-        showNotification('Upload failed: ' + error.message, 'error');
+        console.error('Upload error:', error);
+        showNotification(`Failed to upload: ${error.message}`, 'error');
     }
 }
 
