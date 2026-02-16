@@ -38,3 +38,8 @@ documents/*.txt
 
 # Logs
 *.log
+
+# Vercel (not using)
+vercel.json
+requirements-vercel.txt
+.vercel
