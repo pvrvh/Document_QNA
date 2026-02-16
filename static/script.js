@@ -7,6 +7,10 @@ const API_BASE = window.location.hostname === 'localhost'
 document.addEventListener('DOMContentLoaded', () => {
     loadDocuments();
     loadHistory();
+    checkStatus();
+    
+    // Check status every 30 seconds
+    setInterval(checkStatus, 30000);
     
     // File input change handler
     document.getElementById('fileInput').addEventListener('change', uploadFile);
@@ -28,6 +32,49 @@ function showNotification(message, type = 'success') {
     setTimeout(() => {
         notification.classList.remove('show');
     }, 3000);
+}
+
+// Check system status
+async function checkStatus() {
+    try {
+        const response = await fetch(`${API_BASE}/status`);
+        const status = await response.json();
+        
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        
+        // Determine overall health
+        let overallStatus = 'healthy';
+        let statusMessage = [];
+        
+        if (status.backend === 'healthy') {
+            statusMessage.push('Backend ✓');
+        }
+        
+        if (status.database.status === 'healthy') {
+            statusMessage.push(`DB: ${status.database.documents} docs`);
+        } else {
+            overallStatus = 'error';
+            statusMessage.push('DB ✗');
+        }
+        
+        if (status.llm.status === 'healthy') {
+            statusMessage.push('LLM ✓');
+        } else if (status.llm.status === 'error') {
+            overallStatus = 'error';
+            statusMessage.push('LLM ✗');
+        }
+        
+        // Update UI
+        statusDot.className = `status-dot ${overallStatus}`;
+        statusText.textContent = statusMessage.join(' • ');
+        
+    } catch (error) {
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        statusDot.className = 'status-dot error';
+        statusText.textContent = 'Connection error';
+    }
 }
 
 // Upload file

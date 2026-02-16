@@ -258,6 +258,51 @@ def serve_static(path):
     return send_from_directory('static', path)
 
 
+@app.route('/api/status', methods=['GET'])
+def get_status():
+    """Health check endpoint - shows backend, database, and LLM connection status"""
+    status = {
+        'backend': 'healthy',
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'database': {'status': 'unknown', 'documents': 0, 'chunks': 0},
+        'llm': {'status': 'unknown', 'provider': 'Groq', 'model': 'llama-3.3-70b-versatile'}
+    }
+    
+    # Check vector database
+    try:
+        load_vector_store()
+        unique_docs = len(set(meta['filename'] for meta in vector_store['metadata']))
+        total_chunks = len(vector_store['chunks'])
+        status['database'] = {
+            'status': 'healthy',
+            'documents': unique_docs,
+            'chunks': total_chunks
+        }
+    except Exception as e:
+        status['database'] = {'status': 'error', 'error': str(e)}
+    
+    # Check LLM connection
+    try:
+        if not os.getenv('GROQ_API_KEY'):
+            status['llm']['status'] = 'error'
+            status['llm']['error'] = 'API key not configured'
+        else:
+            # Quick test with minimal token usage
+            test_response = groq_client.chat.completions.create(
+                messages=[{"role": "user", "content": "test"}],
+                model="llama-3.3-70b-versatile",
+                max_tokens=5,
+                temperature=0
+            )
+            if test_response.choices[0].message.content:
+                status['llm']['status'] = 'healthy'
+    except Exception as e:
+        status['llm']['status'] = 'error'
+        status['llm']['error'] = str(e)
+    
+    return jsonify(status)
+
+
 @app.route('/api/upload', methods=['POST'])
 def upload_document():
     """Upload a document and add to vector database"""

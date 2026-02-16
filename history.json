@@ -1,17 +1,5 @@
 [
   {
-    "question": "hi",
-    "answer": "\ud83e\udd16 AI-Generated Answer:\n\nI don't see a question being asked, only a greeting. The context provided is about a binary search code, but there's no question related to it. [Source: code for binary search.txt]",
-    "sources": [
-      {
-        "document": "code for binary search.txt",
-        "snippet": "#code for binary search made by parth def binarysearch(list, target): first = 0 last = len(list) - 1 while first <= last: midpoint = (first + last) // 2 if list[midpoint] == target: return midpoint elif list[midpoint] < target: first = midpoint + 1 else: last = midpoint - 1 return None def verify(in...",
-        "relevance": 4.4
-      }
-    ],
-    "timestamp": "2026-02-16 22:55:42"
-  },
-  {
     "question": "ok",
     "answer": "\ud83e\udd16 AI-Generated Answer:\n\nThere is no question to answer. You've only typed \"ok\". Please provide a question related to the context, and I'll be happy to help.\n\nI'm using the source document \"code for binary search.txt\" to provide my answer. If you provide a question, I'll do my best to answer it based on the context provided in this document.",
     "sources": [
@@ -58,5 +46,17 @@
       }
     ],
     "timestamp": "2026-02-16 23:12:44"
+  },
+  {
+    "question": "tell me more",
+    "answer": "\ud83e\udd16 AI-Generated Answer:\n\nThe context provided is about a binary search algorithm. According to the [Source: code for binary search.txt], it's a code made by Parth that searches for a target number in a list. The code defines a function `binarysearch` that takes a list and a target as input and returns the index of the target if found, or `None` if not found. \n\nThe code then tests this function with a list of numbers `[1,2,3,4,5,6,7,8,9]` and a target `7`, and prints the result using the `verify` function. \n\nIf you're looking for more information on how the binary search works or how to use it, the provided context doesn't contain enough information. [Source: code for binary search.txt] only provides a basic example of the code.",
+    "sources": [
+      {
+        "document": "code for binary search.txt",
+        "snippet": "#code for binary search made by parth def binarysearch(list, target): first = 0 last = len(list) - 1 while first <= last: midpoint = (first + last) // 2 if list[midpoint] == target: return midpoint elif list[midpoint] < target: first = midpoint + 1 else: last = midpoint - 1 return None def verify(in...",
+        "relevance": 11.3
+      }
+    ],
+    "timestamp": "2026-02-16 23:44:10"
   }
 ]
