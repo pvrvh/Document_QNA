@@ -466,8 +466,6 @@ if __name__ == '__main__':
             except Exception as e:
                 print(f"⚠️ Error indexing {filename}: {e}")
     
-    # Get port from environment (Railway sets this) or default to 5000
-    port = int(os.getenv('PORT', 5000))
-    print(f"\n🚀 Starting RAG-powered server on port {port}")
+    print(f"\n🚀 Starting RAG-powered server on http://localhost:5000")
     print("💡 Using Groq (Llama 3) for AI-generated answers\n")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='127.0.0.1', port=5000, debug=True)
