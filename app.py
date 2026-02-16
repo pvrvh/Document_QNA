@@ -5,9 +5,9 @@ import json
 from datetime import datetime
 from dotenv import load_dotenv
 from groq import Groq
-import chromadb
-from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
+import re
+from collections import Counter
+import math
 
 # Load environment variables
 load_dotenv()
@@ -18,40 +18,26 @@ CORS(app)
 # Configuration
 UPLOAD_FOLDER = 'documents'
 HISTORY_FILE = 'history.json'
+VECTOR_INDEX_FILE = 'vector_index.json'
 MAX_HISTORY = 5
-CHUNK_SIZE = 500  # Characters per chunk
+CHUNK_SIZE = 500
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Initialize Groq client
 groq_client = Groq(api_key=os.getenv('GROQ_API_KEY'))
 
-# Initialize embedding model (runs locally, free!)
-print("📦 Loading embedding model...")
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-print("✅ Embedding model loaded!")
+# Simple in-memory vector store (replaces ChromaDB)
+vector_store = {'chunks': [], 'embeddings': [], 'metadata': []}
 
-# Initialize ChromaDB (vector database)
-chroma_client = chromadb.Client(Settings(
-    persist_directory="./chroma_db",
-    anonymized_telemetry=False
-))
-
-# Get or create collection
-try:
-    collection = chroma_client.get_collection("documents")
-    print("✅ Loaded existing vector database")
-except:
-    collection = chroma_client.create_collection(
-        name="documents",
-        metadata={"hnsw:space": "cosine"}
-    )
-    print("✅ Created new vector database")
-
-# Initialize history file
+# Initialize history and vector store files
 if not os.path.exists(HISTORY_FILE):
     with open(HISTORY_FILE, 'w') as f:
         json.dump([], f)
+
+if not os.path.exists(VECTOR_INDEX_FILE):
+    with open(VECTOR_INDEX_FILE, 'w') as f:
+        json.dump(vector_store, f)
 
 
 def load_history():
@@ -67,6 +53,22 @@ def save_history(history):
     """Save query history to file"""
     with open(HISTORY_FILE, 'w') as f:
         json.dump(history[-MAX_HISTORY:], f, indent=2)
+
+
+def load_vector_store():
+    """Load vector store from file"""
+    global vector_store
+    try:
+        with open(VECTOR_INDEX_FILE, 'r') as f:
+            vector_store = json.load(f)
+    except:
+        vector_store = {'chunks': [], 'embeddings': [], 'metadata': []}
+
+
+def save_vector_store():
+    """Save vector store to file"""
+    with open(VECTOR_INDEX_FILE, 'w') as f:
+        json.dump(vector_store, f)
 
 
 def chunk_text(text, chunk_size=CHUNK_SIZE):
@@ -92,47 +94,104 @@ def chunk_text(text, chunk_size=CHUNK_SIZE):
     return chunks
 
 
+def simple_embedding(text):
+    """Create simple TF-IDF style embedding (no external dependencies)"""
+    words = re.findall(r'\w+', text.lower())
+    word_freq = Counter(words)
+    
+    # Create normalized vector
+    total = sum(word_freq.values())
+    vector = {word: freq/total for word, freq in word_freq.items()}
+    
+    return vector
+
+
+def cosine_similarity(vec1, vec2):
+    """Calculate cosine similarity between two sparse vectors"""
+    # Get common words
+    common_words = set(vec1.keys()) & set(vec2.keys())
+    
+    if not common_words:
+        return 0.0
+    
+    # Calculate dot product
+    dot_product = sum(vec1[word] * vec2[word] for word in common_words)
+    
+    # Calculate magnitudes
+    mag1 = math.sqrt(sum(val**2 for val in vec1.values()))
+    mag2 = math.sqrt(sum(val**2 for val in vec2.values()))
+    
+    if mag1 == 0 or mag2 == 0:
+        return 0.0
+    
+    return dot_product / (mag1 * mag2)
+
+
 def add_document_to_vectordb(filename, content):
-    """Add document chunks to vector database"""
+    """Add document chunks to vector store"""
+    load_vector_store()
+    
     # Remove existing chunks for this document
-    try:
-        all_ids = collection.get()['ids']
-        ids_to_delete = [id for id in all_ids if id.startswith(f"{filename}_")]
-        if ids_to_delete:
-            collection.delete(ids=ids_to_delete)
-    except:
-        pass
+    indices_to_remove = []
+    for i, meta in enumerate(vector_store['metadata']):
+        if meta['filename'] == filename:
+            indices_to_remove.append(i)
+    
+    for i in sorted(indices_to_remove, reverse=True):
+        del vector_store['chunks'][i]
+        del vector_store['embeddings'][i]
+        del vector_store['metadata'][i]
     
     chunks = chunk_text(content)
     
     if not chunks:
         return
     
-    # Generate embeddings
-    embeddings = embedding_model.encode(chunks).tolist()
+    for i, chunk in enumerate(chunks):
+        embedding = simple_embedding(chunk)
+        chunk_id = f"{filename}_chunk_{i}"
+        
+        vector_store['chunks'].append(chunk)
+        vector_store['embeddings'].append(embedding)
+        vector_store['metadata'].append({
+            'filename': filename,
+            'chunk_id': i,
+            'id': chunk_id
+        })
     
-    # Create unique IDs
-    ids = [f"{filename}_chunk_{i}" for i in range(len(chunks))]
-    
-    # Add to ChromaDB
-    collection.add(
-        embeddings=embeddings,
-        documents=chunks,
-        ids=ids,
-        metadatas=[{"filename": filename, "chunk_id": i} for i in range(len(chunks))]
-    )
+    save_vector_store()
 
 
 def search_similar_chunks(query, n_results=5):
-    """Search for similar chunks using embeddings"""
-    query_embedding = embedding_model.encode([query]).tolist()
+    """Search for similar chunks using cosine similarity"""
+    load_vector_store()
     
-    results = collection.query(
-        query_embeddings=query_embedding,
-        n_results=n_results
-    )
+    if not vector_store['chunks']:
+        return {'documents': [[]], 'metadatas': [[]], 'distances': [[]]}
     
-    return results
+    query_embedding = simple_embedding(query)
+    
+    # Calculate similarities
+    similarities = []
+    for i, embedding in enumerate(vector_store['embeddings']):
+        similarity = cosine_similarity(query_embedding, embedding)
+        similarities.append((similarity, i))
+    
+    # Sort by similarity (highest first)
+    similarities.sort(reverse=True)
+    
+    # Get top results
+    top_results = similarities[:n_results]
+    
+    documents = [[vector_store['chunks'][idx] for _, idx in top_results]]
+    metadatas = [[vector_store['metadata'][idx] for _, idx in top_results]]
+    distances = [[1 - sim for sim, _ in top_results]]  # Convert similarity to distance
+    
+    return {
+        'documents': documents,
+        'metadatas': metadatas,
+        'distances': distances
+    }
 
 
 def generate_answer_with_groq(question, context_chunks, stream=False):
@@ -252,21 +311,24 @@ def list_documents():
 
 @app.route('/api/documents/<filename>', methods=['DELETE'])
 def delete_document(filename):
-    """Delete a document from filesystem and vector database"""
+    """Delete a document from filesystem and vector store"""
     filepath = os.path.join(UPLOAD_FOLDER, filename)
     if os.path.exists(filepath):
         os.remove(filepath)
         
-        # Remove from vector database
-        try:
-            # Get all IDs for this document
-            all_ids = collection.get()['ids']
-            ids_to_delete = [id for id in all_ids if id.startswith(f"{filename}_")]
-            if ids_to_delete:
-                collection.delete(ids=ids_to_delete)
-                print(f"✅ Removed {filename} from vector database")
-        except Exception as e:
-            print(f"⚠️ Error removing from vector DB: {e}")
+        # Remove from vector store
+        load_vector_store()
+        indices_to_remove = []
+        for i, meta in enumerate(vector_store['metadata']):
+            if meta['filename'] == filename:
+                indices_to_remove.append(i)
+        
+        for i in sorted(indices_to_remove, reverse=True):
+            del vector_store['chunks'][i]
+            del vector_store['embeddings'][i]
+            del vector_store['metadata'][i]
+        
+        save_vector_store()
         
         return jsonify({'message': 'Document deleted'})
     return jsonify({'error': 'Document not found'}), 404
@@ -282,12 +344,8 @@ def ask_question():
         return jsonify({'error': 'No question provided'}), 400
     
     # Check if we have documents
-    try:
-        doc_count = collection.count()
-    except:
-        doc_count = 0
-    
-    if doc_count == 0:
+    load_vector_store()
+    if not vector_store['chunks']:
         return jsonify({
             'answer': '❌ No documents available. Please upload some documents first.',
             'sources': [],
@@ -364,12 +422,8 @@ def ask_question_stream():
         return jsonify({'error': 'No question provided'}), 400
     
     # Check if we have documents
-    try:
-        doc_count = collection.count()
-    except:
-        doc_count = 0
-    
-    if doc_count == 0:
+    load_vector_store()
+    if not vector_store['chunks']:
         def error_stream():
             yield f"data: {json.dumps({'type': 'answer', 'content': '❌ No documents available. Please upload some documents first.'})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'sources': []})}\n\n"
@@ -455,17 +509,20 @@ def clear_history():
 
 if __name__ == '__main__':
     # Re-index existing documents on startup
-    print("\n🔄 Re-indexing existing documents...")
+    print("🔄 Re-indexing existing documents...")
+    load_vector_store()
+    
     for filename in os.listdir(UPLOAD_FOLDER):
         if filename.endswith('.txt'):
-            filepath = os.path.join(UPLOAD_FOLDER, filename)
-            try:
+            # Check if already indexed
+            already_indexed = any(meta['filename'] == filename for meta in vector_store['metadata'])
+            if not already_indexed:
+                filepath = os.path.join(UPLOAD_FOLDER, filename)
                 with open(filepath, 'r', encoding='utf-8') as f:
                     add_document_to_vectordb(filename, f.read())
                     print(f"✅ Indexed: {filename}")
-            except Exception as e:
-                print(f"⚠️ Error indexing {filename}: {e}")
     
-    print(f"\n🚀 Starting RAG-powered server on http://localhost:5000")
+    port = int(os.environ.get('PORT', 5000))
+    print(f"\n🚀 Starting server on port {port}...")
     print("💡 Using Groq (Llama 3) for AI-generated answers\n")
-    app.run(host='127.0.0.1', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=False)
